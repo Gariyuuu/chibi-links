@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chibi — serverless url shortener</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* ── single dark terminal theme; every element paints its own bg ── */
+:root{
+  --bg:#0a0f0c;
+  --surface:#101712;
+  --surface-2:#141c16;
+  --ink:#d9e3dc;
+  --muted:#66806f;
+  --line:#1e2921;
+  --accent:#41e09b;
+  --danger:#ff6b5e;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{background:var(--bg)}
+body{
+  background:var(--bg);color:var(--ink);
+  font:400 13px/1.6 "IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  min-height:100vh;
+}
+::selection{background:var(--accent);color:var(--bg)}
+a{color:var(--accent)}
+:focus-visible{outline:1px solid var(--accent);outline-offset:1px}
+
+.wrap{max-width:860px;margin:0 auto;padding:48px 20px 32px;background:var(--bg)}
+.caption{font-size:11px;color:var(--muted)}
+
+.banner{background:#241412;border:1px solid var(--danger);color:#ffb4ad;
+  padding:8px 12px;font-size:12px;margin-bottom:18px}
+
+header{display:flex;justify-content:space-between;align-items:baseline;
+  gap:12px;flex-wrap:wrap;margin-bottom:22px;background:var(--bg)}
+h1{font-size:15px;font-weight:600;color:var(--ink)}
+h1 .h-sub{color:var(--muted);font-weight:400}
+
+form{display:flex;gap:8px;flex-wrap:wrap;background:var(--bg)}
+input[type=text]{background:var(--surface);border:1px solid var(--line);
+  color:var(--ink);font:inherit;padding:9px 11px;min-width:0;border-radius:0}
+input[type=text]:focus{border-color:var(--accent);outline:none}
+input[type=text].bad{border-color:var(--danger)}
+::placeholder{color:var(--muted);opacity:.75}
+#url{flex:1 1 260px}
+#alias{flex:0 0 140px;width:140px}
+#go{background:var(--accent);color:var(--bg);border:1px solid var(--accent);
+  font:inherit;font-weight:600;padding:9px 16px;cursor:pointer;border-radius:0}
+#go:hover{filter:brightness(1.08)}
+.err-line{color:var(--danger);margin-top:7px}
+
+#search{width:100%;margin-top:24px;font-size:12px}
+
+.table-wrap{margin-top:10px;overflow-x:auto;background:var(--bg)}
+table{width:100%;border-collapse:collapse;font-size:12.5px;background:var(--bg)}
+th{font-size:11px;font-weight:400;color:var(--muted);text-align:left;
+  padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;background:var(--bg)}
+td{padding:8px 10px;border-bottom:1px solid var(--line);background:var(--bg)}
+tbody tr:hover td{background:var(--surface)}
+.c-code{color:var(--accent);font-weight:600;white-space:nowrap}
+.c-target{max-width:340px}
+.t-wrap{display:flex;overflow:hidden}
+.t-head{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 1 auto}
+.t-tail{white-space:nowrap;flex:none}
+.c-time,.c-clicks{color:var(--muted);white-space:nowrap}
+.c-clicks{text-align:right}
+.c-act{white-space:nowrap;text-align:right}
+button.act{background:var(--surface);border:1px solid var(--line);color:var(--muted);
+  font:inherit;font-size:11px;padding:3px 8px;cursor:pointer;margin-left:6px;border-radius:0}
+button.act:hover{color:var(--ink);border-color:var(--muted)}
+button.act.armed{color:var(--danger);border-color:var(--danger)}
+.no-match td{color:var(--muted)}
+
+@keyframes rowflash{0%{background:#1d3a2c}100%{background:var(--bg)}}
+tr.flash td{animation:rowflash 1.2s ease-out}
+
+.empty{border:1px dashed var(--line);background:var(--surface);
+  padding:16px 18px;margin-top:24px;color:var(--muted)}
+.empty .ln{display:block}
+.empty .p{color:var(--accent)}
+.cursor{animation:blink 1.2s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+
+footer{margin-top:28px;padding-top:14px;border-top:1px solid var(--line);background:var(--bg)}
+
+/* ── full-viewport takeover views (redirect + 404) ── */
+.takeover{min-height:100vh;background:var(--bg);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;padding:24px;gap:14px}
+.big-code{font-size:34px;font-weight:600;letter-spacing:.04em;color:var(--accent);word-break:break-all;max-width:90vw}
+.big-code.missing{color:var(--danger)}
+.progress{width:min(420px,80vw);height:3px;background:var(--surface-2);overflow:hidden}
+.progress .bar{height:100%;width:0;background:var(--accent);animation:fill .6s linear forwards}
+@keyframes fill{to{width:100%}}
+.r-target{color:var(--muted);max-width:640px;word-break:break-all;background:var(--bg)}
+.r-target .host{color:var(--ink);font-weight:600}
+.big-btn{display:inline-block;background:var(--accent);color:var(--bg);
+  padding:12px 22px;font-weight:600;font-size:15px;text-decoration:none;border:1px solid var(--accent)}
+.big-btn:hover{filter:brightness(1.1)}
+.danger-cap{color:var(--danger)}
+
+.toast{position:fixed;right:16px;bottom:16px;z-index:10;
+  background:var(--surface-2);border:1px solid var(--accent);color:var(--ink);
+  padding:9px 13px;font-size:12px;max-width:min(560px,86vw);overflow-wrap:break-word}
+
+/* copy fallback carrier: offscreen but selectable (display:none breaks select()) */
+#copy-carrier{position:fixed;left:-9999px;top:0;opacity:0}
+</style>
+</head>
+<body>
+
+<section id="view-creator">
+  <div class="wrap">
+    <div id="mem-banner" class="banner" hidden>storage unavailable — links live until this tab closes</div>
+    <header>
+      <h1>$ chibi <span class="h-sub">— url shortener</span></h1>
+      <p class="caption" id="stat">0 links · 0 total redirects</p>
+    </header>
+
+    <form id="create" novalidate>
+      <input id="url" type="text" placeholder="https://paste-something-long…" autocomplete="off" spellcheck="false" aria-label="url to shorten">
+      <input id="alias" type="text" placeholder="alias (opt)" maxlength="40" autocomplete="off" spellcheck="false" aria-label="custom alias">
+      <button id="go" type="submit">shorten</button>
+    </form>
+    <p id="err" class="caption err-line" role="alert" hidden></p>
+
+    <input id="search" type="text" placeholder="$ filter — code or url" autocomplete="off" spellcheck="false" aria-label="filter links" hidden>
+    <div class="table-wrap" id="table-wrap" hidden>
+      <table>
+        <thead><tr><th>code</th><th>target</th><th>created</th><th style="text-align:right">clicks</th><th></th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+
+    <div id="empty" class="empty" hidden>
+      <span class="ln"><span class="p">$</span> chibi ls</span>
+      <span class="ln">no links yet — paste a url above to mint one</span>
+      <span class="ln"><span class="p">$</span> <span class="cursor">_</span></span>
+    </div>
+
+    <footer class="caption">links resolve in browsers where they were created — this is a serverless toy, not bit.ly · <span id="foot-n">0 links</span></footer>
+  </div>
+</section>
+
+<section id="view-redirect" hidden>
+  <div class="takeover">
+    <p class="caption">$ chibi resolve</p>
+    <div class="big-code" id="r-code"></div>
+    <div class="progress"><div class="bar" id="r-bar"></div></div>
+    <p class="r-target"><span id="r-pre"></span><span class="host" id="r-host"></span><span id="r-post"></span></p>
+    <a id="r-btn" class="big-btn" target="_blank" rel="noopener noreferrer">go →</a>
+    <p id="r-blocked" class="caption danger-cap" hidden>auto-redirect blocked here — use the button</p>
+    <p class="caption"><a href="#" id="r-cancel">cancel — back to creator</a></p>
+  </div>
+</section>
+
+<section id="view-404" hidden>
+  <div class="takeover">
+    <p class="caption">$ chibi resolve</p>
+    <div class="big-code missing" id="nf-code"></div>
+    <p>this code doesn't exist here</p>
+    <p class="caption" style="max-width:520px">links only resolve in the browser where they were created — there's no server behind this page, so a code minted elsewhere is invisible here.</p>
+    <p><a href="#" id="nf-back">← back to creator</a></p>
+  </div>
+</section>
+
+<input id="copy-carrier" type="text" tabindex="-1" aria-hidden="true">
+<div id="toast" class="toast" hidden></div>
+
+<script>
+'use strict';
+(function(){
+
+/* ───────────────── constants + dom ───────────────── */
+var KEY='chibi-links-v1';
+/* deliberately excludes 0/O/1/l/i — codes get read aloud and retyped */
+var ALPHABET='abcdefghjkmnpqrstuvwxyz23456789';
+var $=function(id){return document.getElementById(id)};
+var urlInput=$('url'),aliasInput=$('alias'),errLine=$('err'),searchInput=$('search'),
+    tbody=$('tbody'),tableWrap=$('table-wrap'),emptyEl=$('empty'),
+    statEl=$('stat'),footN=$('foot-n'),banner=$('mem-banner'),
+    toastEl=$('toast'),carrier=$('copy-carrier'),
+    rCode=$('r-code'),rBar=$('r-bar'),rPre=$('r-pre'),rHost=$('r-host'),rPost=$('r-post'),
+    rBtn=$('r-btn'),rBlocked=$('r-blocked'),rCancel=$('r-cancel'),
+    nfCode=$('nf-code'),nfBack=$('nf-back');
+
+/* codes come from the location hash, i.e. attacker-controlled text; a plain
+   `state.links[code]` lookup would hit Object.prototype for "#constructor"
+   etc., so every map access goes through own(). */
+var own=function(o,k){return Object.prototype.hasOwnProperty.call(o,k)};
+
+function esc(s){
+  return String(s).replace(/[&<>"']/g,function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+/* ───────────────── state + persistence ───────────────── */
+var memoryMode=false;
+function freshState(){return {version:1,links:{},clicks:{}}}
+function loadState(){
+  var raw=null;
+  try{raw=localStorage.getItem(KEY)}catch(e){memoryMode=true;return freshState()}
+  if(raw===null){
+    try{localStorage.setItem(KEY+'.probe','1');localStorage.removeItem(KEY+'.probe')}
+    catch(e){memoryMode=true}
+    return freshState();
+  }
+  /* corrupt JSON or wrong shape → fresh state, never a crash */
+  try{
+    var obj=JSON.parse(raw),s=freshState(),code,rec;
+    if(obj&&typeof obj==='object'&&obj.links&&typeof obj.links==='object'){
+      for(code in obj.links){
+        if(!own(obj.links,code))continue;
+        rec=obj.links[code];
+        if(rec&&typeof rec.url==='string'&&typeof rec.createdAt==='number'&&isFinite(rec.createdAt)){
+          s.links[code]={url:rec.url,createdAt:rec.createdAt};
+        }
+      }
+    }
+    if(obj&&obj.clicks&&typeof obj.clicks==='object'){
+      for(code in obj.clicks){
+        if(own(obj.clicks,code)&&own(s.links,code)&&typeof obj.clicks[code]==='number'&&isFinite(obj.clicks[code])){
+          s.clicks[code]=obj.clicks[code];
+        }
+      }
+    }
+    return s;
+  }catch(e){return freshState()}
+}
+var state=loadState();
+function save(){
+  if(memoryMode)return;
+  try{localStorage.setItem(KEY,JSON.stringify(state))}
+  catch(e){memoryMode=true;updateBanner()}
+}
+function updateBanner(){banner.hidden=!memoryMode}
+
+/* ───────────────── helpers ───────────────── */
+function shortLink(code){
+  /* computed from location at runtime — never hardcoded. location.origin is
+     the string "null" on file:, so fall back to href-minus-hash there. */
+  var base=(location.origin&&location.origin!=='null')
+    ? location.origin+location.pathname
+    : location.href.split('#')[0];
+  return base+'#'+code;
+}
+function randCode(len){
+  var out='',i,buf;
+  if(window.crypto&&crypto.getRandomValues){
+    buf=new Uint8Array(len);crypto.getRandomValues(buf);
+    for(i=0;i<len;i++)out+=ALPHABET[buf[i]%ALPHABET.length];
+  }else{
+    for(i=0;i<len;i++)out+=ALPHABET[Math.floor(Math.random()*ALPHABET.length)];
+  }
+  return out;
+}
+function newCode(){
+  var i,c;
+  for(i=0;i<10;i++){c=randCode(5);if(!own(state.links,c))return c}
+  do{c=randCode(6)}while(own(state.links,c));
+  return c;
+}
+function rel(ts){
+  var s=Math.floor((Date.now()-ts)/1000);
+  if(s<60)return 'just now';
+  var m=Math.floor(s/60);if(m<60)return m+'m ago';
+  var h=Math.floor(m/60);if(h<24)return h+'h ago';
+  var d=Math.floor(h/24);if(d<7)return d+'d ago';
+  var w=Math.floor(d/7);if(w<5)return w+'w ago';
+  return new Date(ts).toISOString().slice(0,10);
+}
+
+/* ───────────────── clipboard (api → execCommand fallback) ───────────────── */
+function copyText(text){
+  var p;
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    try{p=navigator.clipboard.writeText(text).then(function(){return true},function(){return legacyCopy(text)})}
+    catch(e){p=Promise.resolve(legacyCopy(text))}
+  }else{
+    p=Promise.resolve(legacyCopy(text));
+  }
+  return p;
+}
+function legacyCopy(text){
+  try{
+    carrier.value=text;
+    carrier.focus({preventScroll:true});
+    carrier.select();
+    var ok=document.execCommand('copy');
+    carrier.blur();
+    return !!ok;
+  }catch(e){return false}
+}
+
+/* ───────────────── toast + flash ───────────────── */
+var toastTimer=null;
+function toast(msg){
+  toastEl.textContent=msg;
+  toastEl.hidden=false;
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(function(){toastEl.hidden=true},2600);
+}
+function flashRow(code){
+  var tr=tbody.querySelector('tr[data-code="'+CSS.escape(code)+'"]');
+  if(!tr)return;
+  tr.classList.remove('flash');
+  void tr.offsetWidth;
+  tr.classList.add('flash');
+  tr.scrollIntoView({block:'nearest'});
+}
+
+/* ───────────────── creator: validation + submit ───────────────── */
+function showErr(msg,input){
+  errLine.textContent=msg;
+  errLine.hidden=false;
+  if(input)input.classList.add('bad');
+}
+function clearErr(){
+  errLine.hidden=true;
+  urlInput.classList.remove('bad');
+  aliasInput.classList.remove('bad');
+}
+urlInput.addEventListener('input',clearErr);
+aliasInput.addEventListener('input',function(){
+  /* pattern-restricted to [a-z0-9-], lowercased live */
+  var v=aliasInput.value.toLowerCase().replace(/[^a-z0-9-]/g,'');
+  if(v!==aliasInput.value)aliasInput.value=v;
+  clearErr();
+});
+
+$('create').addEventListener('submit',function(e){
+  e.preventDefault();
+  clearErr();
+  var raw=urlInput.value.trim();
+  if(!raw){showErr('err: paste a url first',urlInput);return}
+
+  /* URLs never contain literal whitespace — Chromium's parser would happily
+     percent-encode "a b c" into a host, so reject it before parsing */
+  if(/\s/.test(raw)){showErr("err: that's not a url",urlInput);return}
+
+  /* auto-prepend https:// when there's no scheme; "localhost:3000/x" looks
+     like a scheme but is host:port, so treat colon-then-digits as schemeless */
+  var hasScheme=/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw);
+  var portLike=/^[a-zA-Z0-9.-]+:\d+([/?#]|$)/.test(raw);
+  if(!hasScheme||portLike)raw='https://'+raw;
+
+  var u;
+  try{u=new URL(raw)}catch(err2){showErr("err: that's not a url",urlInput);return}
+
+  /* SECURITY: only http/https may ever be stored. This is the gate that
+     keeps javascript: (and data:, vbscript:, …) URLs out of the store, so a
+     stored URL can never execute script when we later navigate to it. */
+  if(u.protocol!=='http:'&&u.protocol!=='https:'){showErr('err: http(s) only',urlInput);return}
+  var target=u.href;
+
+  /* same target already shortened → return the existing code, no new row */
+  var existing=null,c;
+  for(c in state.links){
+    if(own(state.links,c)&&state.links[c].url===target){existing=c;break}
+  }
+  if(existing){finishCreate(existing,true);return}
+
+  var code=aliasInput.value.trim();
+  if(code){
+    if(own(state.links,code)){showErr('err: alias taken',aliasInput);return}
+  }else{
+    code=newCode();
+  }
+  state.links[code]={url:target,createdAt:Date.now()};
+  save();
+  finishCreate(code,false);
+});
+
+function finishCreate(code,wasExisting){
+  urlInput.value='';
+  aliasInput.value='';
+  renderAll();
+  flashRow(code);
+  copyText(shortLink(code)).then(function(ok){
+    if(ok)toast((wasExisting?'already minted — copied → ':'copied → ')+shortLink(code));
+    else toast('ok ✓ '+code+(wasExisting?' already minted':' created')+' — clipboard blocked, use copy');
+  });
+}
+
+/* ───────────────── table ───────────────── */
+function targetCellHtml(url){
+  var head=url,tail='';
+  if(url.length>40){head=url.slice(0,url.length-16);tail=url.slice(-16)}
+  return '<span class="t-wrap" title="'+esc(url)+'">'+
+    '<span class="t-head">'+esc(head)+'</span>'+
+    '<span class="t-tail">'+esc(tail)+'</span></span>';
+}
+function renderTable(){
+  var q=searchInput.value.trim().toLowerCase();
+  var rows=[],c;
+  for(c in state.links){if(own(state.links,c))rows.push([c,state.links[c]])}
+  rows.sort(function(a,b){return b[1].createdAt-a[1].createdAt});
+  if(q){
+    rows=rows.filter(function(r){
+      return r[0].indexOf(q)!==-1||r[1].url.toLowerCase().indexOf(q)!==-1;
+    });
+  }
+  var html='';
+  rows.forEach(function(r){
+    var code=r[0],rec=r[1];
+    var n=own(state.clicks,code)?state.clicks[code]:0;
+    html+='<tr data-code="'+esc(code)+'">'+
+      '<td class="c-code">'+esc(code)+'</td>'+
+      '<td class="c-target">'+targetCellHtml(rec.url)+'</td>'+
+      '<td class="c-time" data-ts="'+rec.createdAt+'">'+esc(rel(rec.createdAt))+'</td>'+
+      '<td class="c-clicks">'+n+'</td>'+
+      '<td class="c-act">'+
+        '<button type="button" class="act copy">copy</button>'+
+        '<button type="button" class="act del">del</button>'+
+      '</td></tr>';
+  });
+  if(!html&&q){
+    html='<tr class="no-match"><td colspan="5">$ no match for &quot;'+esc(q)+'&quot;</td></tr>';
+  }
+  tbody.innerHTML=html;
+}
+function renderAll(){
+  var linkCount=0,total=0,c;
+  for(c in state.links){if(own(state.links,c))linkCount++}
+  for(c in state.clicks){if(own(state.clicks,c))total+=state.clicks[c]}
+  statEl.textContent=linkCount+(linkCount===1?' link':' links')+' · '+total+' total redirect'+(total===1?'':'s');
+  footN.textContent=linkCount+(linkCount===1?' link':' links');
+  var has=linkCount>0;
+  searchInput.hidden=!has;
+  tableWrap.hidden=!has;
+  emptyEl.hidden=has;
+  if(has)renderTable();
+  updateBanner();
+}
+searchInput.addEventListener('input',renderTable);
+
+tbody.addEventListener('click',function(e){
+  var btn=e.target.closest('button.act');
+  if(!btn)return;
+  var tr=btn.closest('tr');
+  var code=tr&&tr.getAttribute('data-code');
+  if(!code||!own(state.links,code))return;
+
+  if(btn.classList.contains('copy')){
+    copyText(shortLink(code)).then(function(ok){
+      btn.textContent=ok?'copied ✓':'copy err';
+      setTimeout(function(){if(btn.isConnected)btn.textContent='copy'},1500);
+    });
+  }else if(btn.classList.contains('del')){
+    if(btn.dataset.armed){
+      delete state.links[code];
+      delete state.clicks[code];
+      save();
+      renderAll();
+      toast('ok ✓ '+code+' deleted');
+    }else{
+      /* two-stage delete: arm for 3s, then revert */
+      btn.dataset.armed='1';
+      btn.classList.add('armed');
+      btn.textContent='sure?';
+      setTimeout(function(){
+        if(btn.isConnected){delete btn.dataset.armed;btn.classList.remove('armed');btn.textContent='del'}
+      },3000);
+    }
+  }
+});
+
+/* keep relative times honest without a full re-render (would disarm "sure?") */
+setInterval(function(){
+  var tds=document.querySelectorAll('.c-time[data-ts]');
+  for(var i=0;i<tds.length;i++)tds[i].textContent=rel(+tds[i].getAttribute('data-ts'));
+},60000);
+
+/* ───────────────── views + router ───────────────── */
+var views={creator:$('view-creator'),redirect:$('view-redirect'),notfound:$('view-404')};
+var current='creator';
+function show(name){
+  current=name;
+  for(var k in views)views[k].hidden=(k!==name);
+}
+var redirectTimer=null,blockTimer=null,attempted=false;
+
+function route(){
+  clearTimeout(redirectTimer);
+  clearTimeout(blockTimer);
+  attempted=false;
+  rBlocked.hidden=true;
+  var code=location.hash.slice(1);
+  try{code=decodeURIComponent(code)}catch(e){}
+  if(!code){show('creator');return}
+  if(own(state.links,code)){
+    showRedirect(code);
+  }else{
+    nfCode.textContent='#'+code;
+    show('notfound');
+  }
+}
+
+function showRedirect(code){
+  var url=state.links[code].url;
+  /* re-vet the scheme at resolve time — defense in depth; the store should
+     only ever contain http(s), but never trust stored strings as navigable */
+  var u=null;
+  try{u=new URL(url)}catch(e){}
+  var safe=!!(u&&(u.protocol==='http:'||u.protocol==='https:'));
+
+  /* count the resolve once per interstitial entry (auto and manual button
+     share it — honest "exactly once" either way) */
+  state.clicks[code]=(own(state.clicks,code)?state.clicks[code]:0)+1;
+  save();
+
+  rCode.textContent=code;
+  /* arrow line is escaped TEXT via textContent, split so the host reads bold;
+     the stored url only becomes an href on the vetted anchor below */
+  var hostIdx=u?url.indexOf(u.host):-1;
+  if(u&&hostIdx!==-1){
+    rPre.textContent='→ '+url.slice(0,hostIdx);
+    rHost.textContent=u.host;
+    rPost.textContent=url.slice(hostIdx+u.host.length);
+  }else{
+    rPre.textContent='→ '+url;
+    rHost.textContent='';
+    rPost.textContent='';
+  }
+  rBtn.textContent='go to '+(u?u.hostname:'target')+' →';
+  rBtn.setAttribute('href',safe?url:'#');
+  show('redirect');
+
+  /* restart the 600ms progress bar */
+  rBar.style.animation='none';
+  void rBar.offsetWidth;
+  rBar.style.animation='';
+
+  redirectTimer=setTimeout(function(){
+    attempted=true;
+    if(safe){try{location.replace(url)}catch(e){}}
+    /* if we're still here 2s later, the sandbox ate the navigation */
+    blockTimer=setTimeout(function(){
+      if(current==='redirect')rBlocked.hidden=false;
+    },2000);
+  },600);
+}
+
+window.addEventListener('focus',function(){
+  if(current==='redirect'&&attempted)rBlocked.hidden=false;
+});
+
+function clearHashAndHome(e){
+  if(e)e.preventDefault();
+  /* clears the hash WITHOUT reloading (location.hash='' would scroll+push) */
+  history.replaceState(null,'',location.pathname+location.search);
+  route();
+}
+rCancel.addEventListener('click',clearHashAndHome);
+nfBack.addEventListener('click',clearHashAndHome);
+
+window.addEventListener('hashchange',route);
+
+/* another tab on this origin edited the store → stay in sync */
+window.addEventListener('storage',function(e){
+  if(e.key===KEY){state=loadState();renderAll()}
+});
+
+/* ───────────────── init ───────────────── */
+updateBanner();
+renderAll();
+route();
+if(current==='creator')urlInput.focus();
+
+})();
+</script>
+</body>
+</html>
